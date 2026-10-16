@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英文打字闖關系統 - 記憶彈窗強化版</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Tesseract.js (支援中英文雙語識別) -->
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+</head>
+<body class="bg-slate-950 text-slate-100 select-none h-full m-0 p-2 sm:p-4 flex flex-col items-center justify-center overflow-hidden">
+
+    <!-- 滿版主容器 -->
+    <div class="w-full h-full max-w-4xl max-h-[98vh] bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-2xl flex flex-col justify-between relative">
+        
+        <!-- 頁首標題區 -->
+        <div class="text-center shrink-0 mb-1">
+            <h1 class="text-base sm:text-xl font-bold text-cyan-400">⌨️ 英文單字記憶闖關系統 (EOW Book 5 Unit 1)</h1>
+            <p class="text-[10px] sm:text-xs text-slate-400">通關記憶彈窗 ⇄ 支援拍照、檔案載入與多段速回饋</p>
+        </div>
+
+        <!-- 功能操作區 -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0 my-1">
+            <div class="bg-slate-800/80 border border-slate-700 p-2 rounded-xl text-center flex flex-col justify-center">
+                <input type="file" id="book-image" accept="image/*" capture="environment" class="hidden" onchange="processVocabularyTable(event)">
+                <label for="book-image" class="block w-full py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[11px] sm:text-xs rounded-lg cursor-pointer shadow transition">
+                    📸 拍照/上傳單字表
+                </label>
+                <div id="ocr-status" class="text-[9px] sm:text-[10px] text-slate-400 mt-1 truncate">自動識別圖片文字</div>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700 p-2 rounded-xl text-center flex flex-col justify-center">
+                <input type="file" id="vocab-file" accept=".txt,.csv" class="hidden" onchange="loadVocabFile(event)">
+                <label for="vocab-file" class="block w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] sm:text-xs rounded-lg cursor-pointer shadow transition">
+                    📂 載入中英對照檔 (.txt/.csv)
+                </label>
+                <div class="text-[9px] sm:text-[10px] text-slate-400 mt-1 truncate">支援 CSV 檔匯入</div>
+            </div>
+
+            <div class="bg-slate-800/50 border border-slate-700/60 p-2 rounded-xl text-xs flex flex-col justify-between">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span class="text-slate-400 font-semibold text-[11px]">📋 題庫 (英文,中文)：</span>
+                    <button onclick="applyCustomVocab()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded text-[10px] font-bold">套用</button>
+                </div>
+                <textarea id="vocab-input" class="w-full h-10 bg-slate-900 text-slate-200 text-[10px] p-1 rounded border border-slate-700 resize-none focus:outline-none focus:border-cyan-400" placeholder="whale, (n.) 鯨魚"></textarea>
+            </div>
+        </div>
+
+        <!-- 數據列 -->
+        <div class="flex justify-between w-full bg-slate-800 px-4 py-1.5 rounded-xl shrink-0 text-xs sm:text-sm border border-slate-700 my-1">
+            <div>分數: <span id="score" class="text-yellow-400 font-bold">0</span></div>
+            <div>進度: <span id="progress" class="text-cyan-400 font-bold">1/20</span></div>
+            <div>Combo: <span id="combo" class="text-orange-400 font-bold">0 🔥</span></div>
+        </div>
+
+        <!-- 輸入法狀態警告橫幅 -->
+        <div id="ime-warning" class="hidden shrink-0 p-1.5 bg-red-500/20 border border-red-500 text-red-300 text-[10px] rounded-lg text-center animate-pulse font-medium my-1">
+            ⚠️ 偵測到您可能正在使用中文輸入法，請切換為英文半角輸入！
+        </div>
+
+        <!-- 彈珠台動畫區 -->
+        <div class="w-full flex-1 min-h-[70px] max-h-[120px] bg-slate-800 rounded-xl flex flex-col items-center justify-center relative overflow-hidden border border-slate-700 my-1 shadow-inner">
+            <div class="absolute top-1.5 left-2.5 text-[9px] text-slate-500">Pinball Physics Arena (Memory Modal)</div>
+            <div class="text-[10px] text-slate-400 mb-0.5">打字速度: <span id="ball-status" class="text-yellow-300 font-mono">READY</span></div>
+            <div id="ball" class="w-5 h-5 rounded-full bg-slate-600 opacity-30 transition-all duration-150"></div>
+        </div>
+
+        <!-- 記憶強化提示與拼字區 -->
+        <div class="bg-slate-800/60 p-3 sm:p-4 rounded-xl text-center border border-slate-700 shrink-0 my-1">
+            <div class="flex justify-center items-center gap-2 mb-1.5 bg-slate-900/60 py-1.5 px-3 rounded-lg border border-slate-700/50">
+                <span class="text-xs text-cyan-300 font-bold tracking-wide" id="memory-word-tag">WORD: whale</span>
+                <span class="text-slate-500">|</span>
+                <span class="text-xs text-rose-400 font-semibold" id="translation">中文提示：(n.) 鯨魚</span>
+            </div>
+
+            <div id="word-display" class="text-xl sm:text-3xl font-mono tracking-widest my-1 text-slate-300 overflow-x-auto whitespace-nowrap py-1 scroll-smooth">
+                <!-- 動態生成的字元 -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 💡 單字通關記憶強化彈窗 (Modal) -->
+    <div id="memory-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-cyan-500/50 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-in fade-in zoom-in duration-200">
+            <div class="text-xs text-cyan-400 font-bold tracking-widest mb-1 uppercase">🎉 單字完美通關記憶卡</div>
+            <div id="modal-word" class="text-3xl font-black text-white font-mono my-3 tracking-wider">WHALE</div>
+            <div id="modal-translation" class="text-base text-rose-400 font-semibold mb-6">(n.) 鯨魚</div>
+            <button onclick="closeMemoryModal()" class="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg transition">
+                繼續下一關 (按 Enter 或空白鍵)
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const SMART_DICT = {
+            "whale": "(n.) 鯨魚", "octopus": "(n.) 章魚", "squid": "(n.) 烏賊；魷魚", "shark": "(n.) 鯊魚",
+            "sea turtle": "(n.) 海龜", "resources": "(n.) 資源", "layer": "(n.) 層；階層", "disappear": "(v.) 消失",
+            "dolphin": "(n.) 海豚", "twilight zone": "(n.) 微光帶", "reef": "(n.) 礁；暗礁", "oil spill": "(n.) 石油外洩",
+            "garbage": "(n.) 垃圾", "pollution": "(n.) 污染", "biodegradable": "(adj.) 可生物分解的",
+            "plastic bag": "(n.) 塑膠袋", "coral": "(n.) 珊瑚", "tentacle": "(n.) 觸手；觸角",
+            "sunlit zone": "(n.) 透光帶", "midnight zone": "(n.) 無光帶"
+        };
+
+        let vocabList = [
+            { word: "whale", translation: "(n.) 鯨魚" },
+            { word: "octopus", translation: "(n.) 章魚" },
+            { word: "squid", translation: "(n.) 烏賊；魷魚" },
+            { word: "shark", translation: "(n.) 鯊魚" },
+            { word: "sea turtle", translation: "(n.) 海龜" },
+            { word: "resources", translation: "(n.) 資源" },
+            { word: "layer", translation: "(n.) 層；階層" },
+            { word: "disappear", translation: "(v.) 消失" },
+            { word: "dolphin", translation: "(n.) 海豚" },
+            { word: "twilight zone", translation: "(n.) 微光帶" },
+            { word: "reef", translation: "(n.) 礁；暗礁" },
+            { word: "oil spill", translation: "(n.) 石油外洩" },
+            { word: "garbage", translation: "(n.) 垃圾" },
+            { word: "pollution", translation: "(n.) 污染" },
+            { word: "biodegradable", translation: "(adj.) 可生物分解的" },
+            { word: "plastic bag", translation: "(n.) 塑膠袋" },
+            { word: "coral", translation: "(n.) 珊瑚" },
+            { word: "tentacle", translation: "(n.) 觸手；觸角" },
+            { word: "sunlit zone", translation: "(n.) 透光帶" },
+            { word: "midnight zone", translation: "(n.) 無光帶" }
+        ];
+
+        let currentIndex = 0;
+        let typedIndex = 0;
+        let score = 0;
+        let combo = 0;
+        let isModalOpen = false; // 記錄彈窗是否開啟
+        let lastKeyTime = Date.now();
+
+        const currentItem = () => vocabList[currentIndex];
+
+        const wordDisplayEl = document.getElementById('word-display');
+        const translationEl = document.getElementById('translation');
+        const memoryWordTagEl = document.getElementById('memory-word-tag');
+        const scoreEl = document.getElementById('score');
+        const progressEl = document.getElementById('progress');
+        const comboEl = document.getElementById('combo');
+        const ballEl = document.getElementById('ball');
+        const ballStatusEl = document.getElementById('ball-status');
+        const imeWarningEl = document.getElementById('ime-warning');
+        const ocrStatusEl = document.getElementById('ocr-status');
+        const vocabInputEl = document.getElementById('vocab-input');
+        const memoryModalEl = document.getElementById('memory-modal');
+        const modalWordEl = document.getElementById('modal-word');
+        const modalTranslationEl = document.getElementById('modal-translation');
+
+        function initVocabInput() {
+            vocabInputEl.value = vocabList.map(v => `${v.word}, ${v.translation}`).join('\n');
+        }
+
+        function renderWord() {
+            if (!vocabList[currentIndex]) return;
+            const current = currentItem();
+            
+            translationEl.innerText = `中文提示：${current.translation}`;
+            memoryWordTagEl.innerText = `TARGET: ${current.word.toUpperCase()}`;
+            progressEl.innerText = `${currentIndex + 1}/${vocabList.length}`;
+            
+            let html = '';
+            for (let i = 0; i < current.word.length; i++) {
+                let char = current.word[i];
+                let displayChar = char === ' ' ? '&nbsp;' : char;
+                
+                if (i < typedIndex) {
+                    html += `<span class="text-green-400">${displayChar}</span>`;
+                } else if (i === typedIndex) {
+                    html += `<span id="current-char" class="text-yellow-300 underline decoration-wavy font-bold">${displayChar}</span>`;
+                } else {
+                    html += `<span class="text-slate-500">${displayChar}</span>`;
+                }
+            }
+            wordDisplayEl.innerHTML = html;
+
+            const currentCharEl = document.getElementById('current-char');
+            if (currentCharEl) {
+                currentCharEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            }
+        }
+
+        // 開啟通關記憶彈窗
+        function showMemoryModal() {
+            isModalOpen = true;
+            const current = currentItem();
+            modalWordEl.innerText = current.word.toUpperCase();
+            modalTranslationEl.innerText = current.translation;
+            memoryModalEl.classList.remove('hidden');
+        }
+
+        // 關閉彈窗並切換到下一個單字
+        function closeMemoryModal() {
+            isModalOpen = false;
+            memoryModalEl.classList.add('hidden');
+            currentIndex = (currentIndex + 1) % vocabList.length;
+            typedIndex = 0;
+            lastKeyTime = Date.now();
+            renderWord();
+        }
+
+        function loadVocabFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                vocabInputEl.value = e.target.result;
+                applyCustomVocab();
+                ocrStatusEl.innerText = `✅ 成功載入檔案：${file.name}`;
+                ocrStatusEl.className = "text-[9px] text-green-400 mt-1 truncate";
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        async function processVocabularyTable(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            ocrStatusEl.innerText = "⏳ 正在辨識圖片中...";
+            ocrStatusEl.className = "text-[9px] text-cyan-400 mt-1 animate-pulse truncate";
+
+            try {
+                const result = await Tesseract.recognize(file, 'eng');
+                const text = result.data.text;
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+                let extractedWords = [];
+                const ignoreWords = ["book", "unit", "list", "vocabulary", "eow", "page"];
+
+                lines.forEach(line => {
+                    const matches = line.match(/[a-zA-Z]+(\s[a-zA-Z]+)?/g);
+                    if (matches) {
+                        matches.forEach(rawWord => {
+                            const cleanWord = rawWord.trim().toLowerCase();
+                            if (cleanWord.length >= 3 && !ignoreWords.includes(cleanWord)) {
+                                if (!extractedWords.includes(cleanWord)) {
+                                    extractedWords.push(cleanWord);
+                                }
+                            }
+                        });
+                    }
+                });
+
+                if (extractedWords.length > 0) {
+                    const formattedPairs = extractedWords.map(w => `${w}, ${SMART_DICT[w] || "(n.) 課本單字"}`);
+                    vocabInputEl.value = formattedPairs.join('\n');
+                    applyCustomVocab();
+                    ocrStatusEl.innerText = `✅ 辨識出 ${extractedWords.length} 個單字，已自動對照！`;
+                    ocrStatusEl.className = "text-[9px] text-green-400 mt-1 truncate";
+                } else {
+                    ocrStatusEl.innerText = "⚠️ 辨識較模糊，請手動修改或載入檔案。";
+                    ocrStatusEl.className = "text-[9px] text-yellow-400 mt-1 truncate";
+                }
+            } catch (err) {
+                console.error(err);
+                ocrStatusEl.innerText = "❌ 辨識發生錯誤。";
+                ocrStatusEl.className = "text-[9px] text-rose-400 mt-1 truncate";
+            }
+        }
+
+        function applyCustomVocab() {
+            const rawText = vocabInputEl.value.trim();
+            if (!rawText) return;
+
+            const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let parsedList = [];
+
+            lines.forEach(line => {
+                if (line.toLowerCase().startsWith('word')) return;
+                let parts = line.split(/[,;，；]/);
+                if (parts.length >= 2) {
+                    let word = parts[0].trim().toLowerCase();
+                    let translation = parts.slice(1).join(', ').trim();
+                    if (word.length >= 2) {
+                        parsedList.push({ word, translation });
+                    }
+                } else {
+                    let word = line.toLowerCase();
+                    if (word.length >= 2) {
+                        parsedList.push({
+                            word: word,
+                            translation: SMART_DICT[word] || "(n.) 自定義單字"
+                        });
+                    }
+                }
+            });
+
+            if (parsedList.length > 0) {
+                vocabList = parsedList;
+                currentIndex = 0;
+                typedIndex = 0;
+                score = 0;
+                combo = 0;
+                scoreEl.innerText = score;
+                comboEl.innerText = `${combo} 🔥`;
+                renderWord();
+            }
+        }
+
+        function handleInput(char) {
+            const word = currentItem().word;
+            const targetChar = word[typedIndex];
+
+            const now = Date.now();
+            const timeDiff = now - lastKeyTime;
+            lastKeyTime = now;
+
+            if (char === targetChar) {
+                typedIndex++;
+                score += 1;
+                scoreEl.innerText = score;
+
+                triggerSpeedFeedback(timeDiff);
+
+                if (typedIndex === word.length) {
+                    score += 25;
+                    scoreEl.innerText = score;
+                    
+                    combo += 1;
+                    comboEl.innerText = `${combo} 🔥`;
+
+                    // 💡 單字打完，彈出記憶強化視窗
+                    showMemoryModal();
+                } else {
+                    renderWord();
+                }
+            } else {
+                combo = 0;
+                comboEl.innerText = `${combo} 🔥`;
+                triggerErrorFeedback();
+            }
+        }
+
+        function triggerSpeedFeedback(ms) {
+            let colorClass = "";
+            let speedText = "";
+
+            if (ms < 400) {
+                colorClass = "w-7 h-7 rounded-full bg-emerald-400 scale-125 shadow-[0_0_20px_#34d399]";
+                speedText = "LIGHTNING ⚡";
+            } else if (ms < 800) {
+                colorClass = "w-6 h-6 rounded-full bg-yellow-400 scale-110 shadow-[0_0_15px_#facc15]";
+                speedText = "FAST 🔥";
+            } else if (ms < 1500) {
+                colorClass = "w-6 h-6 rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]";
+                speedText = "STEADY 💧";
+            } else if (ms < 3000) {
+                colorClass = "w-5 h-5 rounded-full bg-purple-400 shadow-[0_0_10px_#c084fc]";
+                speedText = "THINKING 🐢";
+            } else if (ms <= 5000) {
+                colorClass = "w-5 h-5 rounded-full bg-indigo-400 opacity-80 shadow-[0_0_8px_#818cf8]";
+                speedText = "RELAXED 💤";
+            } else {
+                colorClass = "w-5 h-5 rounded-full bg-orange-400 shadow-[0_0_10px_#fb923c]";
+                speedText = "PAUSED ⚠️";
+            }
+
+            ballStatusEl.innerText = speedText;
+            ballEl.className = colorClass + " transition-all duration-150";
+            
+            setTimeout(() => {
+                ballStatusEl.innerText = 'READY';
+                ballEl.className = 'w-5 h-5 rounded-full bg-slate-600 opacity-30 transition-all duration-200';
+            }, 250);
+        }
+
+        function triggerErrorFeedback() {
+            ballStatusEl.innerText = 'MISS ❌';
+            ballEl.className = 'w-6 h-6 rounded-full bg-rose-500 scale-110 shadow-[0_0_15px_#f43f5e] transition-all duration-150';
+            
+            setTimeout(() => {
+                ballStatusEl.innerText = 'READY';
+                ballEl.className = 'w-5 h-5 rounded-full bg-slate-600 opacity-30 transition-all duration-200';
+            }, 250);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+            if (e.keyCode === 229 || e.key === 'Process') {
+                imeWarningEl.classList.remove('hidden');
+                return;
+            }
+
+            let key = e.key;
+
+            // 如果彈窗開著，按下 Enter 或空白鍵可以直接關閉彈窗進入下一關
+            if (isModalOpen) {
+                if (key === 'Enter' || key === ' ' || e.code === 'Space') {
+                    e.preventDefault();
+                    closeMemoryModal();
+                }
+                return;
+            }
+
+            if (key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                key = ' ';
+            }
+
+            const lowerKey = key.toLowerCase();
+            const validChars = "abcdefghijklmnopqrstuvwxyz0123456789 ,.?!'\";:-";
+
+            if (validChars.includes(lowerKey)) {
+                imeWarningEl.classList.add('hidden');
+                handleInput(lowerKey);
+            } else {
+                imeWarningEl.classList.add('hidden');
+            }
+        });
+
+        // 初始化
+        initVocabInput();
+        renderWord();
+    </script>
+</body>
+</html>
